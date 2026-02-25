@@ -442,7 +442,7 @@ ALTER TABLE reports DISABLE ROW LEVEL SECURITY;`}
                             setCurrentView('dashboard');
                         }
                     } else {
-                        setLoginError('Utilizador ou senha inválidos. (Admin padrão: admin / admin)');
+                        setLoginError('Utilizador ou senha inválidos.');
                     }
                 } catch(err) { 
                     console.error("Erro Login:", err);
@@ -1316,9 +1316,6 @@ ALTER TABLE reports DISABLE ROW LEVEL SECURITY;`}
                                     </button>
                                 </form>
                                 
-                                <p className="text-xs text-center text-slate-500 dark:text-slate-400 mt-6">
-                                    Admin padrão: admin / admin
-                                </p>
                             </div>
                         </div>
                     ) : (
@@ -2304,7 +2301,7 @@ ALTER TABLE reports DISABLE ROW LEVEL SECURITY;`}
                                                 <div className="space-y-4 mb-6">
                                                     <div>
                                                         <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">Utilizador *</label>
-                                                        <input required type="text" value={userForm.username} onChange={e=>setUserForm({...userForm, username: e.target.value})} className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 outline-none text-slate-900 dark:text-white" disabled={userForm.username === 'admin' && userForm.id}/>
+                                                        <input required type="text" value={userForm.username} onChange={e=>setUserForm({...userForm, username: e.target.value})} className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 outline-none text-slate-900 dark:text-white" disabled={userForm.username === 'usuário' && userForm.id}/>
                                                     </div>
                                                     <div>
                                                         <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">Palavra-passe *</label>
@@ -2587,3 +2584,4 @@ ALTER TABLE reports DISABLE ROW LEVEL SECURITY;`}
     </script>
 </body>
 </html>
+
