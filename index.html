@@ -305,46 +305,37 @@
 
             // CARREGAMENTO DE DADOS DO SUPABASE
             const loadFromDB = async () => {
-                if(!supabase) return;
-                try {
-                    // Usando try/catch em vez de .catch() que não funciona corretamente
-                    let usersData = [], clientesData = [], vendasData = [], savedData = [], reportsData = [];
-                    
+                    if(!supabase) return;
                     try {
-                        const { data } = await supabase.from('users').select('*');
-                        usersData = data || [];
-                    } catch (e) { console.warn('Erro users:', e); }
-                    
-                    try {
-                        const { data } = await supabase.from('clientes').select('*');
-                        clientesData = data || [];
-                    } catch (e) { console.warn('Erro clientes:', e); }
-                    
-                    try {
-                        const { data } = await supabase.from('vendas').select('*');
-                        vendasData = data || [];
-                    } catch (e) { console.warn('Erro vendas:', e); }
-                    
-                    try {
-                        const { data } = await supabase.from('savedReports').select('*');
-                        savedData = data || [];
-                    } catch (e) { console.warn('Erro savedReports:', e); }
-                    
-                    try {
-                        const { data } = await supabase.from('reports').select('*');
-                        reportsData = data || [];
-                    } catch (e) { console.warn('Erro reports:', e); }
-                    
-                    setUsersList(usersData.filter(Boolean));
-                    setClientes(clientesData.filter(Boolean));
-                    setVendasList(vendasData.filter(Boolean));
-                    setSavedReportsList(savedData.filter(Boolean));
-                    setDbReports(reportsData.filter(Boolean));
-
-                } catch (err) { 
-                    console.error("Erro ao carregar Supabase:", err);
-                }
-            };
+                        console.log('Carregando dados do Supabase...');
+                        
+                        // Tentar buscar reports
+                        const { data: reportsData, error: reportsError } = await supabase
+                            .from('reports')
+                            .select('*');
+                        
+                        if (reportsError) {
+                            console.error('Erro ao buscar reports:', reportsError);
+                        } else {
+                            console.log('Reports carregados:', reportsData);
+                            setDbReports(reportsData || []);
+                        }
+                        
+                        // Buscar outras tabelas
+                        const { data: clientesData } = await supabase.from('clientes').select('*').catch(() => ({ data: [] }));
+                        const { data: vendasData } = await supabase.from('vendas').select('*').catch(() => ({ data: [] }));
+                        const { data: savedData } = await supabase.from('savedReports').select('*').catch(() => ({ data: [] }));
+                        const { data: usersData } = await supabase.from('users').select('*').catch(() => ({ data: [] }));
+                        
+                        setClientes(clientesData || []);
+                        setVendasList(vendasData || []);
+                        setSavedReportsList(savedData || []);
+                        setUsersList(usersData || []);
+                
+                    } catch (err) { 
+                        console.error("Erro ao carregar Supabase:", err);
+                    }
+                };
 
             // Setup Inicial do Admin
             useEffect(() => {
@@ -748,44 +739,40 @@
             };
 
             const handleSubmitExtrato = async (e) => {
-                e.preventDefault();
-                if (!formData.parceiro.trim()) return setFormError('ERRO: Parceiro obrigatório.');
-                if (formData.arquivos.length === 0) return setFormError('ERRO: Anexos obrigatórios.');
-                
-                setLoading(true); 
-                setLoadingMsg("Fazendo upload...");
-                
-                try {
-                    // Verifica se o bucket existe e cria se necessário
+                    e.preventDefault();
+                    
+                    // Validações
+                    if (!formData.parceiro.trim()) return setFormError('ERRO: Parceiro obrigatório.');
+                    if (formData.arquivos.length === 0) return setFormError('ERRO: Anexos obrigatórios.');
+                    
+                    setLoading(true); 
+                    setLoadingMsg("Fazendo upload...");
+                    
                     try {
-                        await supabase.storage.createBucket('documentos', { 
-                            public: true,
-                            allowedMimeTypes: ['application/pdf', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv']
-                        });
-                    } catch (e) {
-                        console.log('Bucket pode já existir:', e);
-                    }
-
-                    for (const file of formData.arquivos) {
-                        const filePath = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+                        console.log('Iniciando upload...');
                         
-                        // Upload para storage
-                        const { error: uploadErr } = await supabase.storage
-                            .from('documentos')
-                            .upload(filePath, file, {
-                                cacheControl: '3600',
-                                upsert: false
-                            });
-
-                        if(uploadErr) {
-                            console.error('Erro upload:', uploadErr);
-                            throw uploadErr;
-                        }
-                        
-                        // Inserir na tabela reports
-                        const { error: insertErr } = await supabase
-                            .from('reports')
-                            .insert([{ 
+                        for (const file of formData.arquivos) {
+                            const filePath = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+                            
+                            console.log('Enviando arquivo:', file.name, 'para path:', filePath);
+                            
+                            // Upload para storage
+                            const { data: uploadData, error: uploadErr } = await supabase.storage
+                                .from('documentos')
+                                .upload(filePath, file, {
+                                    cacheControl: '3600',
+                                    upsert: false
+                                });
+                
+                            if(uploadErr) {
+                                console.error('Erro upload:', uploadErr);
+                                throw new Error(`Erro no upload: ${uploadErr.message}`);
+                            }
+                            
+                            console.log('Upload OK, inserindo na tabela reports...');
+                            
+                            // Inserir na tabela reports
+                            const novoRegistro = { 
                                 ano: formData.ano, 
                                 mes: formData.mes, 
                                 categoria: formData.categoria, 
@@ -794,25 +781,42 @@
                                 date: new Date().toISOString(), 
                                 fileName: file.name, 
                                 filePath: filePath 
-                            }]);
-
-                        if(insertErr) {
-                            console.error('Erro insert:', insertErr);
-                            throw insertErr;
+                            };
+                            
+                            console.log('Dados a inserir:', novoRegistro);
+                            
+                            const { data: insertData, error: insertErr } = await supabase
+                                .from('reports')
+                                .insert([novoRegistro])
+                                .select();
+                
+                            if(insertErr) {
+                                console.error('Erro insert:', insertErr);
+                                throw new Error(`Erro ao salvar no banco: ${insertErr.message}`);
+                            }
+                            
+                            console.log('Inserido com sucesso:', insertData);
                         }
+                        
+                        // Recarregar dados
+                        await loadFromDB();
+                        
+                        // Mostrar mensagem de sucesso
+                        setSuccessMsg(`${formData.arquivos.length} extratos guardados com sucesso!`);
+                        
+                        // Limpar formulário
+                        setFormData(prev => ({ ...prev, parceiro: '', arquivos: [] }));
+                        
+                        // Limpar mensagem após 4 segundos
+                        setTimeout(() => setSuccessMsg(''), 4000);
+                        
+                    } catch (error) { 
+                        console.error('Erro completo:', error);
+                        showAlert("Erro ao enviar: " + error.message); 
+                    } finally { 
+                        setLoading(false); 
                     }
-                    
-                    await loadFromDB();
-                    setSuccessMsg(`${formData.arquivos.length} extratos guardados!`);
-                    setFormData(prev => ({ ...prev, parceiro: '', arquivos: [] }));
-                    setTimeout(() => setSuccessMsg(''), 4000);
-                } catch (error) { 
-                    console.error('Erro completo:', error);
-                    showAlert("Erro ao enviar: " + error.message); 
-                } finally { 
-                    setLoading(false); 
-                }
-            };
+                };
 
             const handleNavigate = async (item) => {
                 if (item.type === 'folder') { 
@@ -1536,3 +1540,4 @@
     </script>
 </body>
 </html>
+
