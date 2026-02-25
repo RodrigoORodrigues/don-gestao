@@ -53,12 +53,12 @@
         // 1. CONFIGURAÇÃO DO SUPABASE (A NOVA BASE DE DADOS CLOUD)
         // ============================================================================
         
+        // Substitua pelo seu URL e Chave ANON
         const SUPABASE_URL = 'https://ivyujdcwvbjoaqpzvuyv.supabase.co';
-        // CORREÇÃO: A chave deve estar sempre entre aspas simples (' ')
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2eXVqZGN3dmJqb2FxcHp2dXl2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NTgxMzcsImV4cCI6MjA4NzUzNDEzN30.UqptrsjHWG_PEu1KmWd0IxDvLnEX9AWwkKsuWJuA3T0';
 
         // Evita que a app quebre se as chaves ainda não tiverem sido configuradas corretamente
-        const isSupabaseConfigured = SUPABASE_URL.startsWith('http') && SUPABASE_KEY !== 'COLE_AQUI_A_SUA_CHAVE_ANON';
+        const isSupabaseConfigured = SUPABASE_URL.startsWith('http') && SUPABASE_KEY !== 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2eXVqZGN3dmJqb2FxcHp2dXl2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NTgxMzcsImV4cCI6MjA4NzUzNDEzN30.UqptrsjHWG_PEu1KmWd0IxDvLnEX9AWwkKsuWJuA3T0';
         const supabase = isSupabaseConfigured ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
 
         // ============================================================================
@@ -137,7 +137,7 @@
         const CATEGORIAS = ["Operadoras", "Seguradoras"];
         const MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
         const dataDeHojeInterna = () => new Date().toISOString().split('T')[0];
-        const formatarMoeda = (valor) => valor.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const formatarMoeda = (valor) => valor ? valor.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0,00';
         const formatarDataVisivel = (dataString) => {
             if(!dataString) return '--/--/----';
             const partes = dataString.split('-');
@@ -151,25 +151,44 @@
         );
 
         function GestorComissoesApp() {
+            // Se o Supabase não estiver configurado
+            if (!isSupabaseConfigured) {
+                return (
+                    <div className="flex h-screen w-screen items-center justify-center bg-slate-900 p-6">
+                        <div className="bg-slate-800 p-8 rounded-2xl shadow-2xl max-w-lg w-full text-center border border-slate-700">
+                            <Icons.Database size={48} className="text-blue-500 mx-auto mb-4" />
+                            <h1 className="text-2xl font-bold text-white mb-2">Conexão Cloud Necessária</h1>
+                            <p className="text-slate-400 mb-6 text-sm">O seu sistema Don Gestão foi atualizado para usar o Supabase. Para continuar, por favor cole as variáveis <strong>SUPABASE_URL</strong> e <strong>SUPABASE_KEY</strong> na linha 49 do código.</p>
+                        </div>
+                    </div>
+                );
+            }
+
             // TEMA
             const [isDarkMode, setIsDarkMode] = useState(() => {
                 const saved = localStorage.getItem('protetta_theme');
                 return saved ? saved === 'dark' : true; 
             });
 
-            // AUTENTICAÇÃO
+            // AUTENTICAÇÃO BLINDADA (Evita erros de null se o localStorage estiver corrompido)
             const [currentUser, setCurrentUser] = useState(() => {
-                const saved = localStorage.getItem('protetta_auth_user');
-                return saved ? JSON.parse(saved) : null;
+                try {
+                    const saved = localStorage.getItem('protetta_auth_user');
+                    if (!saved || saved === 'undefined' || saved === 'null') return null;
+                    const parsed = JSON.parse(saved);
+                    if (parsed && typeof parsed === 'object' && parsed.username) return parsed;
+                    return null;
+                } catch(e) { return null; }
             });
             const [loginData, setLoginData] = useState({ user: '', password: '' });
             const [loginError, setLoginError] = useState('');
             const [showPassword, setShowPassword] = useState(false);
 
+            // VERIFICAÇÃO DE ACESSO BLINDADA
             const hasAccess = (module) => {
-                if (!currentUser) return false;
+                if (!currentUser || typeof currentUser !== 'object') return false;
                 if (currentUser.role === 'admin') return true; 
-                return (currentUser.permissions || []).includes(module);
+                return Array.isArray(currentUser.permissions) && currentUser.permissions.includes(module);
             };
 
             // SISTEMA DE ALERTAS
@@ -229,7 +248,7 @@
             const [vendasFilterForm, setVendasFilterForm] = useState(defaultVendasFilters);
             const [appliedVendasFilters, setAppliedVendasFilters] = useState(null);
 
-            // CARREGAMENTO DE DADOS DO SUPABASE
+            // CARREGAMENTO DE DADOS DO SUPABASE (C/ Proteção contra Nulos .filter(Boolean))
             const loadFromDB = async () => {
                 if(!supabase) return;
                 try {
@@ -241,11 +260,11 @@
                         supabase.from('reports').select('*')
                     ]);
                     
-                    if (resUsers.data) setUsersList(resUsers.data);
-                    if (resCli.data) setClientes(resCli.data);
-                    if (resVendas.data) setVendasList(resVendas.data);
-                    if (resSaved.data) setSavedReportsList(resSaved.data);
-                    if (resRep.data) setDbReports(resRep.data);
+                    if (resUsers.data) setUsersList((resUsers.data || []).filter(Boolean));
+                    if (resCli.data) setClientes((resCli.data || []).filter(Boolean));
+                    if (resVendas.data) setVendasList((resVendas.data || []).filter(Boolean));
+                    if (resSaved.data) setSavedReportsList((resSaved.data || []).filter(Boolean));
+                    if (resRep.data) setDbReports((resRep.data || []).filter(Boolean));
 
                 } catch (err) { console.error("Erro ao carregar Supabase:", err); }
             };
@@ -255,13 +274,13 @@
                 const initAdminSupabase = async () => {
                     if(!supabase) return;
                     try {
-                        const { data } = await supabase.from('users').select('*').limit(1);
+                        const { data, error } = await supabase.from('users').select('*').limit(1);
                         if (data && data.length === 0) {
                             await supabase.from('users').insert([{
                                 username: 'admin', password: 'admin', role: 'admin', permissions: SYSTEM_MODULES.map(m => m.id)
                             }]);
                         }
-                    } catch(e) {}
+                    } catch(e) { console.warn("Possível bloqueio de RLS no Supabase."); }
                 };
                 initAdminSupabase();
             }, []);
@@ -276,11 +295,13 @@
             // --- LOGIN / LOGOUT ---
             const handleLogin = async (e) => {
                 e.preventDefault();
-                setLoading(true); setLoadingMsg("Autenticando...");
+                setLoading(true); setLoadingMsg("Autenticando na Cloud...");
                 try {
                     const { data: users, error } = await supabase.from('users').select('*').eq('username', loginData.user);
                     
-                    if (users && users.length > 0 && users[0].password === loginData.password) {
+                    if (error) { throw error; }
+
+                    if (users && users.length > 0 && users[0] && users[0].password === loginData.password) {
                         const user = users[0];
                         const sessionUser = { id: user.id, username: user.username, role: user.role, permissions: user.permissions || [] };
                         setCurrentUser(sessionUser);
@@ -289,15 +310,22 @@
                         setLoginData({ user: '', password: '' });
                         setShowPassword(false);
                         
-                        if (user.role !== 'admin' && !user.permissions.includes('dashboard')) {
-                            if (user.permissions.length > 0) setCurrentView(user.permissions[0]);
+                        if (user.role !== 'admin' && !(user.permissions || []).includes('dashboard')) {
+                            if (user.permissions && user.permissions.length > 0) {
+                                setCurrentView(user.permissions[0]);
+                            } else {
+                                setCurrentView('none'); // Força ecrã de acesso restrito
+                            }
                         } else {
                             setCurrentView('dashboard');
                         }
                     } else {
-                        setLoginError('Credenciais inválidas ou erro ao ligar à Base de Dados. Verifique a chave Anon.');
+                        setLoginError('Utilizador ou senha inválidos. (Se é o seu primeiro acesso, verifique se desativou o RLS nas tabelas do Supabase)');
                     }
-                } catch(err) { setLoginError('Erro de conexão ao servidor Supabase.'); }
+                } catch(err) { 
+                    console.error("Erro Login:", err);
+                    setLoginError(`Conexão recusada pela Base de Dados. Verifique se o RLS está desativado na tabela "users".`); 
+                }
                 finally { setLoading(false); }
             };
 
@@ -308,68 +336,6 @@
                     setCurrentView('dashboard');
                 });
             };
-
-            // Se o Supabase não estiver configurado, mostra um ecrã de bloqueio elegante
-            if (!isSupabaseConfigured) {
-                return (
-                    <div className="flex h-screen w-screen items-center justify-center bg-slate-900 p-6">
-                        <div className="bg-slate-800 p-8 rounded-2xl shadow-2xl max-w-lg w-full text-center border border-slate-700">
-                            <Icons.Database size={48} className="text-blue-500 mx-auto mb-4" />
-                            <h1 className="text-2xl font-bold text-white mb-2">Conexão Cloud Necessária</h1>
-                            <p className="text-slate-400 mb-6 text-sm">O seu sistema Don Gestão foi atualizado para uma arquitetura cloud com o Supabase. Para continuar, por favor abra o código fonte e preencha as variáveis <strong>SUPABASE_URL</strong> e <strong>SUPABASE_KEY</strong> na linha 49.</p>
-                            <div className="bg-slate-900 p-4 rounded-lg text-left text-xs font-mono text-emerald-400 border border-slate-700">
-                                const SUPABASE_URL = 'https://ivyujdcwvbjoaqpzvuyv.supabase.co';<br/>
-                                const SUPABASE_KEY = 'SUA_CHAVE_GIGANTE_AQUI';
-                            </div>
-                        </div>
-                    </div>
-                );
-            }
-
-            // --- RENDERIZAÇÃO: TELA DE LOGIN ---
-            if (!currentUser) {
-                return (
-                    <div className="flex h-screen w-screen items-center justify-center bg-slate-100 dark:bg-slate-900 transition-colors duration-200 p-4">
-                        <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-2xl w-full max-w-md border border-slate-200 dark:border-slate-700 transition-colors relative">
-                            <div className="flex flex-col items-center mb-8">
-                                <div className="bg-emerald-600 p-3 rounded-xl font-bold text-white text-3xl leading-none border border-emerald-400/50 mb-4 shadow-lg">D</div>
-                                <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Don Gestão</h1>
-                                <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">Acesso ao Sistema de Gestão</p>
-                            </div>
-                            
-                            <form onSubmit={handleLogin} className="space-y-5">
-                                <div>
-                                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Utilizador</label>
-                                    <div className="relative">
-                                        <Icons.User size={18} className="absolute left-3 top-3 text-slate-400" />
-                                        <input type="text" required value={loginData.user} onChange={e => setLoginData({...loginData, user: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg pl-10 pr-4 py-2.5 text-slate-900 dark:text-white outline-none focus:border-emerald-500 transition-colors" placeholder="Digite o seu utilizador" />
-                                    </div>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Palavra-passe</label>
-                                    <div className="relative">
-                                        <Icons.Key size={18} className="absolute left-3 top-3 text-slate-400" />
-                                        <input type={showPassword ? "text" : "password"} required value={loginData.password} onChange={e => setLoginData({...loginData, password: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg pl-10 pr-10 py-2.5 text-slate-900 dark:text-white outline-none focus:border-emerald-500 transition-colors" placeholder="••••••••" />
-                                        <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors focus:outline-none" title={showPassword ? "Ocultar senha" : "Mostrar senha"}>
-                                            {showPassword ? <Icons.EyeOff size={18} /> : <Icons.Eye size={18} />}
-                                        </button>
-                                    </div>
-                                </div>
-                                
-                                {loginError && <p className="text-rose-500 dark:text-rose-400 text-sm font-bold text-center bg-rose-100 dark:bg-rose-500/10 py-2 rounded-lg border border-rose-200 dark:border-rose-500/20">{loginError}</p>}
-                                
-                                <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-lg flex items-center justify-center space-x-2 transition-colors shadow-lg mt-4 disabled:opacity-50" disabled={loading}>
-                                    {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <><Icons.Lock size={18} /><span>Entrar no Sistema</span></>}
-                                </button>
-                            </form>
-                        </div>
-                        
-                        <button onClick={() => setIsDarkMode(!isDarkMode)} className="absolute bottom-6 right-6 p-3 bg-white dark:bg-slate-800 rounded-full shadow-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-emerald-500 dark:hover:text-emerald-400 transition-colors">
-                            {isDarkMode ? <Icons.Sun size={20} /> : <Icons.Moon size={20} />}
-                        </button>
-                    </div>
-                );
-            }
 
             // --- LÓGICA DE VENDAS E FILTRAGEM UNIFICADA ---
             const applyDatePreset = (preset) => {
@@ -433,42 +399,44 @@
                 let todasAsVendas = [...vendasList];
                 
                 savedReportsList.forEach(report => {
-                    if (report.dados && Array.isArray(report.dados)) {
+                    if (report && report.dados && Array.isArray(report.dados)) {
                         report.dados.forEach((dado, idx) => {
-                            todasAsVendas.push({
-                                id: `rep_${report.id}_${idx}`, 
-                                isFromReport: true,
-                                reportId: report.id,
-                                reportRowIndex: idx,
-                                numero: dado.cod,
-                                cliente: dado.cliente,
-                                dataVenda: report.dataCriacao ? report.dataCriacao.split('T')[0] : dataDeHojeInterna(),
-                                situacao: dado.situacao,
-                                loja: dado.loja,
-                                valor: dado.valorTotal,
-                                contrato: '', codigoOperadora: '', vidas: '', vitalicio: '', parcela: '', inicioVigencia: '', notaFiscal: '', corretor: ''
-                            });
+                            if (dado) {
+                                todasAsVendas.push({
+                                    id: `rep_${report.id}_${idx}`, 
+                                    isFromReport: true,
+                                    reportId: report.id,
+                                    reportRowIndex: idx,
+                                    numero: dado.cod,
+                                    cliente: dado.cliente,
+                                    dataVenda: report.dataCriacao ? report.dataCriacao.split('T')[0] : dataDeHojeInterna(),
+                                    situacao: dado.situacao,
+                                    loja: dado.loja,
+                                    valor: dado.valorTotal,
+                                    contrato: '', codigoOperadora: '', vidas: '', vitalicio: '', parcela: '', inicioVigencia: '', notaFiscal: '', corretor: ''
+                                });
+                            }
                         });
                     }
                 });
 
                 if (appliedVendasFilters) {
                     const f = appliedVendasFilters;
-                    if (f.loja !== 'Todos') todasAsVendas = todasAsVendas.filter(v => v.loja === f.loja);
-                    if (f.situacao !== 'Todos') todasAsVendas = todasAsVendas.filter(v => v.situacao === f.situacao);
-                    if (f.codigo) todasAsVendas = todasAsVendas.filter(v => (v.numero || '').toLowerCase().includes(f.codigo.toLowerCase()));
-                    if (f.cliente) todasAsVendas = todasAsVendas.filter(v => (v.cliente || '').toLowerCase().includes(f.cliente.toLowerCase()));
-                    if (f.contrato) todasAsVendas = todasAsVendas.filter(v => (v.contrato || '').toLowerCase().includes(f.contrato.toLowerCase()));
-                    if (f.codigoOperadora) todasAsVendas = todasAsVendas.filter(v => (v.codigoOperadora || '').toLowerCase().includes(f.codigoOperadora.toLowerCase()));
-                    if (f.notaFiscal) todasAsVendas = todasAsVendas.filter(v => (v.notaFiscal || '').toLowerCase().includes(f.notaFiscal.toLowerCase()));
-                    if (f.vidas) todasAsVendas = todasAsVendas.filter(v => v.vidas == f.vidas);
-                    if (f.vitalicio !== 'Selecione') todasAsVendas = todasAsVendas.filter(v => v.vitalicio === f.vitalicio);
-                    if (f.corretor !== 'Todos') todasAsVendas = todasAsVendas.filter(v => v.corretor === f.corretor);
-                    if (f.dataInicio) todasAsVendas = todasAsVendas.filter(v => v.dataVenda >= f.dataInicio);
-                    if (f.dataFim) todasAsVendas = todasAsVendas.filter(v => v.dataVenda <= f.dataFim);
+                    if (f.loja !== 'Todos') todasAsVendas = todasAsVendas.filter(v => v?.loja === f.loja);
+                    if (f.situacao !== 'Todos') todasAsVendas = todasAsVendas.filter(v => v?.situacao === f.situacao);
+                    if (f.codigo) todasAsVendas = todasAsVendas.filter(v => (v?.numero || '').toLowerCase().includes(f.codigo.toLowerCase()));
+                    if (f.cliente) todasAsVendas = todasAsVendas.filter(v => (v?.cliente || '').toLowerCase().includes(f.cliente.toLowerCase()));
+                    if (f.contrato) todasAsVendas = todasAsVendas.filter(v => (v?.contrato || '').toLowerCase().includes(f.contrato.toLowerCase()));
+                    if (f.codigoOperadora) todasAsVendas = todasAsVendas.filter(v => (v?.codigoOperadora || '').toLowerCase().includes(f.codigoOperadora.toLowerCase()));
+                    if (f.notaFiscal) todasAsVendas = todasAsVendas.filter(v => (v?.notaFiscal || '').toLowerCase().includes(f.notaFiscal.toLowerCase()));
+                    if (f.vidas) todasAsVendas = todasAsVendas.filter(v => v?.vidas == f.vidas);
+                    if (f.vitalicio !== 'Selecione') todasAsVendas = todasAsVendas.filter(v => v?.vitalicio === f.vitalicio);
+                    if (f.corretor !== 'Todos') todasAsVendas = todasAsVendas.filter(v => v?.corretor === f.corretor);
+                    if (f.dataInicio) todasAsVendas = todasAsVendas.filter(v => v?.dataVenda >= f.dataInicio);
+                    if (f.dataFim) todasAsVendas = todasAsVendas.filter(v => v?.dataVenda <= f.dataFim);
                 }
                 
-                todasAsVendas.sort((a, b) => new Date(b.dataVenda) - new Date(a.dataVenda));
+                todasAsVendas.sort((a, b) => new Date(b?.dataVenda || 0) - new Date(a?.dataVenda || 0));
                 return todasAsVendas;
             };
 
@@ -497,7 +465,7 @@
 
             const salvarVenda = async (e) => {
                 e.preventDefault();
-                setLoading(true); setLoadingMsg("Guardando venda...");
+                setLoading(true); setLoadingMsg("Guardando venda na Cloud...");
                 try {
                     const dataToSave = { ...vendaForm, valor: parseFloat(vendaForm.valor) || 0 };
 
@@ -527,7 +495,7 @@
 
             const apagarVenda = (venda) => {
                 showConfirm(`Tem a certeza que deseja apagar permanentemente este registo?`, async () => {
-                    setLoading(true); setLoadingMsg("Apagando...");
+                    setLoading(true); setLoadingMsg("Apagando na Cloud...");
                     if (venda.isFromReport) {
                         const rep = await supabase.from('savedReports').select('*').eq('id', venda.reportId).single();
                         if (rep.data) {
@@ -551,9 +519,11 @@
 
             const salvarUsuario = async (e) => {
                 e.preventDefault();
-                setLoading(true); setLoadingMsg("Guardando utilizador...");
+                setLoading(true); setLoadingMsg("Guardando utilizador na Cloud...");
                 try {
-                    const { data: existing } = await supabase.from('users').select('*').eq('username', userForm.username);
+                    const { data: existing, error: findError } = await supabase.from('users').select('*').eq('username', userForm.username);
+                    if (findError) throw findError;
+
                     if (existing && existing.length > 0 && existing[0].id !== userForm.id) {
                         setLoading(false); return showAlert("Já existe um utilizador registado com este nome.");
                     }
@@ -573,13 +543,13 @@
                     } else { await supabase.from('users').insert([dataToSave]); }
                     
                     await loadFromDB(); setModalUserOpen(false); showAlert("Utilizador guardado com sucesso!");
-                } catch (err) { showAlert("Erro ao guardar: " + err.message); } finally { setLoading(false); }
+                } catch (err) { showAlert("Erro ao guardar: Certifique-se que desativou o RLS na tabela Users. (" + err.message + ")"); } finally { setLoading(false); }
             };
 
             const apagarUsuario = (u) => {
                 if (u.username === 'admin') return showAlert("Proteção de Sistema: Não é possível apagar a conta padrão (admin).");
                 if (currentUser?.id === u.id) return showAlert("Você não pode apagar a sua própria conta enquanto estiver conectado.");
-                showConfirm(`Tem a certeza que deseja apagar permanentemente o utilizador '${u.username}'?`, async () => {
+                showConfirm(`Tem a certeza que deseja apagar permanentemente o utilizador '${u?.username || 'Desconhecido'}'?`, async () => {
                     await supabase.from('users').delete().eq('id', u.id); await loadFromDB();
                 });
             };
@@ -601,14 +571,14 @@
             const getItemsAtCurrentPath = () => {
                 if (searchTerm.trim() !== '') {
                     const term = searchTerm.toLowerCase();
-                    return dbReports.filter(r => r.parceiro.toLowerCase().includes(term) || r.fileName.toLowerCase().includes(term) || r.empresa.toLowerCase().includes(term))
+                    return dbReports.filter(r => r && r.parceiro && r.parceiro.toLowerCase().includes(term) || (r.fileName && r.fileName.toLowerCase().includes(term)) || (r.empresa && r.empresa.toLowerCase().includes(term)))
                                     .map(f => ({ ...f, type: 'file', pathInfo: `${f.ano} / ${f.mes} / ${f.empresa}` }));
                 }
-                if (currentPath.length === 0) return [...new Set(dbReports.map(r => r.ano))].sort().map(y => ({ id: y, name: y, type: 'folder' }));
-                if (currentPath.length === 1) return [...new Set(dbReports.filter(r => r.ano === currentPath[0]).map(r => r.mes))].sort((a, b) => MESES.indexOf(a) - MESES.indexOf(b)).map(m => ({ id: m, name: m, type: 'folder' }));
+                if (currentPath.length === 0) return [...new Set(dbReports.filter(Boolean).map(r => r.ano))].sort().map(y => ({ id: y, name: y, type: 'folder' }));
+                if (currentPath.length === 1) return [...new Set(dbReports.filter(r => r && r.ano === currentPath[0]).map(r => r.mes))].sort((a, b) => MESES.indexOf(a) - MESES.indexOf(b)).map(m => ({ id: m, name: m, type: 'folder' }));
                 if (currentPath.length === 2) return CATEGORIAS.map(c => ({ id: c, name: c, type: 'folder' }));
                 if (currentPath.length === 3) return EMPRESAS_INTERNAS.map(e => ({ id: e, name: e, type: 'folder' }));
-                if (currentPath.length === 4) return dbReports.filter(r => r.ano === currentPath[0] && r.mes === currentPath[1] && r.categoria === currentPath[2] && r.empresa === currentPath[3]).map(f => ({ ...f, type: 'file', name: f.parceiro }));
+                if (currentPath.length === 4) return dbReports.filter(r => r && r.ano === currentPath[0] && r.mes === currentPath[1] && r.categoria === currentPath[2] && r.empresa === currentPath[3]).map(f => ({ ...f, type: 'file', name: f.parceiro }));
                 return [];
             };
 
@@ -657,11 +627,11 @@
             };
 
             // --- FUNÇÕES: CLIENTES CLOUD ---
-            const clientesFiltrados = clientes.filter(cli => cli.nome.toLowerCase().includes(filtroNomeCliente.toLowerCase()));
+            const clientesFiltrados = clientes.filter(cli => cli && cli.nome && cli.nome.toLowerCase().includes(filtroNomeCliente.toLowerCase()));
 
             const apagarCliente = (id) => {
                 showConfirm("Tem a certeza que deseja apagar este cliente?", async () => {
-                    setLoading(true); setLoadingMsg("Apagando cliente...");
+                    setLoading(true); setLoadingMsg("Apagando cliente na Cloud...");
                     await supabase.from('clientes').delete().eq('id', id);
                     await loadFromDB(); setLoading(false);
                 });
@@ -675,18 +645,18 @@
 
             const salvarCliente = async (e) => {
                 e.preventDefault();
-                setLoading(true); setLoadingMsg("Guardando cliente...");
+                setLoading(true); setLoadingMsg("Guardando cliente na Cloud...");
                 try {
                     const clienteParaSalvar = { ...clienteForm };
                     clienteParaSalvar.nome = clienteParaSalvar.nome.trim();
 
                     if (clienteEditIndex >= 0) {
-                        const duplicado = clientes.find(c => c.id !== clienteEditIndex && c.nome.toLowerCase() === clienteParaSalvar.nome.toLowerCase());
+                        const duplicado = clientes.find(c => c && c.id !== clienteEditIndex && c.nome.toLowerCase() === clienteParaSalvar.nome.toLowerCase());
                         if (duplicado) { setLoading(false); return showAlert("Já existe outro cliente registado com este nome exato."); }
                         
                         await supabase.from('clientes').update(clienteParaSalvar).eq('id', clienteEditIndex);
                     } else {
-                        const duplicado = clientes.find(c => c.nome.toLowerCase() === clienteParaSalvar.nome.toLowerCase());
+                        const duplicado = clientes.find(c => c && c.nome.toLowerCase() === clienteParaSalvar.nome.toLowerCase());
                         if (duplicado) { setLoading(false); return showAlert("Não é possível salvar. Já existe um cliente com este nome na base."); }
                         
                         clienteParaSalvar.codigo = Math.floor(10000 + Math.random() * 90000).toString();
@@ -715,7 +685,7 @@
                         linhasExcel.forEach(linha => {
                             let nome = linha['Nome'] || linha['NOME'] || linha['Cliente'] || "Sem Nome";
                             nome = nome.trim();
-                            if(!clientes.find(c => c.nome.toLowerCase() === nome.toLowerCase()) && !novosClientesParaInserir.find(c => c.nome.toLowerCase() === nome.toLowerCase())) {
+                            if(!clientes.find(c => c && c.nome && c.nome.toLowerCase() === nome.toLowerCase()) && !novosClientesParaInserir.find(c => c.nome.toLowerCase() === nome.toLowerCase())) {
                                 novosClientesParaInserir.push({
                                     codigo: Math.floor(10000 + Math.random() * 90000).toString(),
                                     nome: nome, tipo: linha['Tipo'] || 'Pessoa jurídica', documento: linha['Documento'] || linha['CNPJ'] || linha['NIF'] || '',
@@ -771,7 +741,7 @@
 
                 const novosRegistos = [];
                 const clientesParaInserir = [];
-                const nomesClientesExistem = new Set(clientes.map(c => c.nome.toLowerCase()));
+                const nomesClientesExistem = new Set(clientes.filter(Boolean).map(c => c.nome.toLowerCase()));
 
                 for (let bloco of blocosContrato) {
                     try {
@@ -965,7 +935,7 @@
                             <div>
                                 <h1 className="text-lg font-bold text-slate-900 dark:text-white leading-tight">Don Gestão</h1>
                                 <p className="text-xs text-slate-500 flex items-center mt-0.5">
-                                    <Icons.User size={12} className="mr-1"/> {currentUser?.username}
+                                    <Icons.User size={12} className="mr-1"/> {currentUser?.username || 'Sessão'}
                                 </p>
                             </div>
                         </div>
@@ -1008,6 +978,22 @@
                     {/* ÁREA DE CONTEÚDO */}
                     <main className="flex-1 overflow-auto bg-slate-50 dark:bg-slate-900 p-4 md:p-8 relative transition-colors duration-200">
                         
+                        {/* FALLBACK QUANDO NÃO HÁ ACESSO AO MÓDULO ATUAL */}
+                        {(!hasAccess(currentView) && currentView !== 'none') && (
+                            <div className="flex flex-col items-center justify-center h-full text-slate-500 dark:text-slate-400 animate-in fade-in">
+                                <Icons.Shield size={64} className="mb-4 opacity-20"/>
+                                <h2 className="text-2xl font-bold mb-2 text-slate-800 dark:text-slate-200">Acesso Restrito</h2>
+                                <p>O seu perfil não tem permissões suficientes para visualizar este módulo.</p>
+                            </div>
+                        )}
+                        {currentView === 'none' && (
+                            <div className="flex flex-col items-center justify-center h-full text-slate-500 dark:text-slate-400 animate-in fade-in">
+                                <Icons.Lock size={64} className="mb-4 opacity-20"/>
+                                <h2 className="text-2xl font-bold mb-2 text-slate-800 dark:text-slate-200">Bem-vindo(a)</h2>
+                                <p>A sua conta foi validada, mas não tem acesso a nenhum módulo de momento.</p>
+                            </div>
+                        )}
+
                         {/* VIEW: DASHBOARD */}
                         {currentView === 'dashboard' && hasAccess('dashboard') && (
                             <div className="max-w-5xl mx-auto space-y-8 animate-in fade-in duration-500 pb-20">
@@ -1198,18 +1184,18 @@
                                             {displayedVendas.length === 0 ? (
                                                 <tr><td colSpan="6" className="py-8 text-center text-slate-500 italic">Nenhum registo de venda encontrado com os filtros atuais.</td></tr>
                                             ) : (
-                                                displayedVendas.map((venda, idx) => (
-                                                    <tr key={venda.id} className="border-b border-slate-200 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-750/50 transition-colors">
-                                                        <td className="py-4 px-4 text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">{venda.numero || '-'}</td>
+                                                displayedVendas.filter(Boolean).map((venda, idx) => (
+                                                    <tr key={venda?.id || idx} className="border-b border-slate-200 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-750/50 transition-colors">
+                                                        <td className="py-4 px-4 text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">{venda?.numero || '-'}</td>
                                                         <td className="py-4 px-4 border-r border-slate-200 dark:border-slate-700">
-                                                            <div className="font-bold text-slate-900 dark:text-slate-100">{venda.cliente}</div>
-                                                            <div className="text-xs text-slate-500 italic mt-0.5">({venda.loja})</div>
+                                                            <div className="font-bold text-slate-900 dark:text-slate-100">{venda?.cliente}</div>
+                                                            <div className="text-xs text-slate-500 italic mt-0.5">({venda?.loja})</div>
                                                         </td>
-                                                        <td className="py-4 px-4 text-slate-600 dark:text-slate-300 border-r border-slate-200 dark:border-slate-700">{formatarDataVisivel(venda.dataVenda)}</td>
+                                                        <td className="py-4 px-4 text-slate-600 dark:text-slate-300 border-r border-slate-200 dark:border-slate-700">{formatarDataVisivel(venda?.dataVenda)}</td>
                                                         <td className="py-4 px-4 text-center border-r border-slate-200 dark:border-slate-700">
-                                                            <span className={`${getSituacaoColor(venda.situacao)} px-3 py-1 rounded text-xs font-bold uppercase`}>{venda.situacao}</span>
+                                                            <span className={`${getSituacaoColor(venda?.situacao)} px-3 py-1 rounded text-xs font-bold uppercase`}>{venda?.situacao}</span>
                                                         </td>
-                                                        <td className="py-4 px-4 text-slate-800 dark:text-slate-200 font-medium text-right border-r border-slate-200 dark:border-slate-700">{formatarMoeda(venda.valor)}</td>
+                                                        <td className="py-4 px-4 text-slate-800 dark:text-slate-200 font-medium text-right border-r border-slate-200 dark:border-slate-700">{formatarMoeda(venda?.valor)}</td>
                                                         <td className="py-4 px-4 text-center">
                                                             <div className="flex gap-1.5 justify-center">
                                                                 <button className="bg-sky-500 hover:bg-sky-400 text-white p-1.5 rounded transition-colors shadow-sm" title="Visualizar Detalhes"><Icons.Search size={14}/></button>
@@ -1251,19 +1237,19 @@
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {usersList.map((user) => (
-                                                <tr key={user.id} className="border-b border-slate-200 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-750/50 transition-colors">
+                                            {usersList.filter(Boolean).map((user) => (
+                                                <tr key={user?.id || Math.random()} className="border-b border-slate-200 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-750/50 transition-colors">
                                                     <td className="py-3 px-4 font-bold text-slate-900 dark:text-white flex items-center">
                                                         <Icons.User size={16} className="mr-2 text-slate-400" />
-                                                        {user.username}
+                                                        {user?.username || 'Desconhecido'}
                                                     </td>
                                                     <td className="py-3 px-4">
-                                                        <span className={`px-2.5 py-1 rounded-md text-xs font-bold ${user.role === 'admin' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300' : 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300'}`}>
-                                                            {user.role === 'admin' ? 'Administrador' : 'Usuário Padrão'}
+                                                        <span className={`px-2.5 py-1 rounded-md text-xs font-bold ${user?.role === 'admin' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300' : 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300'}`}>
+                                                            {user?.role === 'admin' ? 'Administrador' : 'Usuário Padrão'}
                                                         </span>
                                                     </td>
                                                     <td className="py-3 px-4 text-xs text-slate-500 dark:text-slate-400">
-                                                        {user.role === 'admin' ? 'Acesso Total' : `${(user.permissions || []).length} Módulos`}
+                                                        {user?.role === 'admin' ? 'Acesso Total' : `${(user?.permissions || []).length} Módulos`}
                                                     </td>
                                                     <td className="py-3 px-4 text-center">
                                                         <div className="flex gap-2 justify-center">
@@ -1302,12 +1288,12 @@
                                             {savedReportsList.length === 0 ? (
                                                 <tr><td colSpan="5" className="py-8 text-center text-slate-500 italic">Nenhum relatório foi salvo ainda. Processe e salve um na aba "Relatórios de Comissão".</td></tr>
                                             ) : (
-                                                savedReportsList.slice().reverse().map((rep) => (
-                                                    <tr key={rep.id} className="border-b border-slate-200 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-750/50 transition-colors">
-                                                        <td className="py-3 px-4 text-slate-500 dark:text-slate-400">{new Date(rep.dataCriacao).toLocaleDateString('pt-PT')} às {new Date(rep.dataCriacao).toLocaleTimeString('pt-PT').slice(0,5)}</td>
-                                                        <td className="py-3 px-4 font-bold text-slate-800 dark:text-slate-200">{rep.nome}</td>
-                                                        <td className="py-3 px-4 text-slate-600 dark:text-slate-400">{rep.periodo || '-'}</td>
-                                                        <td className="py-3 px-4 text-slate-600 dark:text-slate-400 text-center">{(rep.dados || []).length}</td>
+                                                savedReportsList.slice().reverse().filter(Boolean).map((rep) => (
+                                                    <tr key={rep?.id} className="border-b border-slate-200 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-750/50 transition-colors">
+                                                        <td className="py-3 px-4 text-slate-500 dark:text-slate-400">{rep?.dataCriacao ? `${new Date(rep.dataCriacao).toLocaleDateString('pt-PT')} às ${new Date(rep.dataCriacao).toLocaleTimeString('pt-PT').slice(0,5)}` : '-'}</td>
+                                                        <td className="py-3 px-4 font-bold text-slate-800 dark:text-slate-200">{rep?.nome}</td>
+                                                        <td className="py-3 px-4 text-slate-600 dark:text-slate-400">{rep?.periodo || '-'}</td>
+                                                        <td className="py-3 px-4 text-slate-600 dark:text-slate-400 text-center">{(rep?.dados || []).length}</td>
                                                         <td className="py-3 px-4 text-center">
                                                             <div className="flex gap-2 justify-center">
                                                                 <button onClick={() => carregarRelatorioSalvo(rep)} className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 bg-blue-50 dark:bg-blue-900/30 px-3 py-1.5 rounded transition-colors text-xs font-bold">Abrir</button>
@@ -1389,7 +1375,7 @@
                                             {clientesFiltrados.length === 0 ? (
                                                 <tr><td colSpan="10" className="py-8 text-center text-slate-500 italic">Nenhum cliente encontrado.</td></tr>
                                             ) : (
-                                                clientesFiltrados.map((cli) => {
+                                                clientesFiltrados.filter(Boolean).map((cli) => {
                                                     return (
                                                     <tr key={cli.id} className="border-b border-slate-200 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-750/50 transition-colors">
                                                         {cols.codigo && <td className="py-3 px-4 text-slate-500 dark:text-slate-400">{cli.codigo || '-'}</td>}
@@ -1492,7 +1478,7 @@
                                             {pdfData.length === 0 ? (
                                                 <tr><td colSpan="8" className="py-8 text-center text-slate-500 italic">Nenhum dado extraído ainda. Importe o PDF.</td></tr>
                                             ) : (
-                                                pdfData.map((linha, idx) => (
+                                                pdfData.filter(Boolean).map((linha, idx) => (
                                                     editRowIndex === idx ? (
                                                         <tr key={idx} className="border-b border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 transition-colors">
                                                             <td className="py-2 px-2 border-r border-slate-200 dark:border-slate-700"><input type="text" value={editRowData.cod} onChange={e=>setEditRowData({...editRowData, cod: e.target.value})} className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-xs text-slate-900 dark:text-white outline-none focus:border-blue-500" /></td>
@@ -1511,13 +1497,13 @@
                                                         </tr>
                                                     ) : (
                                                         <tr key={idx} className="border-b border-slate-100 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-750/30">
-                                                            <td className="py-2 px-4 border-r border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400">{linha.cod}</td>
-                                                            <td className="py-2 px-4 border-r border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200">{linha.cliente}</td>
-                                                            <td className="py-2 px-4 border-r border-slate-200 dark:border-slate-700 text-center text-slate-500 dark:text-slate-400">{linha.data}</td>
-                                                            <td className="py-2 px-4 border-r border-slate-200 dark:border-slate-700 text-center text-slate-500 dark:text-slate-400">{linha.situacao}</td>
-                                                            <td className="py-2 px-4 border-r border-slate-200 dark:border-slate-700 text-center text-slate-500 dark:text-slate-400">{linha.loja}</td>
-                                                            <td className="py-2 px-4 border-r border-slate-200 dark:border-slate-700 text-right font-medium text-slate-700 dark:text-slate-300">{formatarMoeda(linha.valorTotal)}</td>
-                                                            <td className="py-2 px-4 text-right font-bold text-sky-600 dark:text-sky-400">{formatarMoeda(linha.comissao)}</td>
+                                                            <td className="py-2 px-4 border-r border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400">{linha?.cod || '-'}</td>
+                                                            <td className="py-2 px-4 border-r border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200">{linha?.cliente || '-'}</td>
+                                                            <td className="py-2 px-4 border-r border-slate-200 dark:border-slate-700 text-center text-slate-500 dark:text-slate-400">{linha?.data || '-'}</td>
+                                                            <td className="py-2 px-4 border-r border-slate-200 dark:border-slate-700 text-center text-slate-500 dark:text-slate-400">{linha?.situacao || '-'}</td>
+                                                            <td className="py-2 px-4 border-r border-slate-200 dark:border-slate-700 text-center text-slate-500 dark:text-slate-400">{linha?.loja || '-'}</td>
+                                                            <td className="py-2 px-4 border-r border-slate-200 dark:border-slate-700 text-right font-medium text-slate-700 dark:text-slate-300">{formatarMoeda(linha?.valorTotal)}</td>
+                                                            <td className="py-2 px-4 text-right font-bold text-sky-600 dark:text-sky-400">{formatarMoeda(linha?.comissao)}</td>
                                                             <td className="py-2 px-2 text-center no-print">
                                                                 <div className="flex gap-2 justify-center">
                                                                     <button onClick={() => startEditingRow(idx, linha)} className="text-amber-500 hover:text-amber-400 p-1 transition-colors" title="Editar Linha"><Icons.Edit size={16}/></button>
@@ -1533,8 +1519,8 @@
                                             <tfoot>
                                                 <tr className="bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-white border-t-2 border-slate-300 dark:border-slate-600 transition-colors duration-200">
                                                     <td colSpan="5" className="py-3 px-4 font-bold">TOTAIS APURADOS</td>
-                                                    <td className="py-3 px-4 text-right font-bold text-emerald-600 dark:text-emerald-400">{formatarMoeda(pdfData.reduce((acc, l)=>acc+l.valorTotal, 0))}</td>
-                                                    <td className="py-3 px-4 text-right font-bold text-sky-600 dark:text-sky-400 text-lg">{formatarMoeda(pdfData.reduce((acc, l)=>acc+l.comissao, 0))}</td>
+                                                    <td className="py-3 px-4 text-right font-bold text-emerald-600 dark:text-emerald-400">{formatarMoeda(pdfData.reduce((acc, l)=>acc+(l?.valorTotal || 0), 0))}</td>
+                                                    <td className="py-3 px-4 text-right font-bold text-sky-600 dark:text-sky-400 text-lg">{formatarMoeda(pdfData.reduce((acc, l)=>acc+(l?.comissao || 0), 0))}</td>
                                                     <td className="no-print"></td>
                                                 </tr>
                                             </tfoot>
@@ -1598,9 +1584,9 @@
                                     {getItemsAtCurrentPath().map((item, idx) => (
                                         <div key={idx} onClick={() => handleNavigate(item)} className={`p-4 rounded-xl border cursor-pointer flex flex-col items-center text-center space-y-3 transition-colors ${item.type === 'folder' ? 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700' : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 hover:border-emerald-500/50 hover:bg-white dark:hover:bg-slate-800'}`}>
                                             <div className={`p-3 rounded-full ${item.type === 'folder' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' : 'bg-slate-100 dark:bg-slate-700 ' + getFileColorClass(item.fileName)}`}>
-                                                {item.type === 'folder' ? <Icons.Folder size={32} /> : (item.fileName.endsWith('pdf') ? <Icons.FileText size={32} /> : <Icons.FileSpreadsheet size={32} />)}
+                                                {item.type === 'folder' ? <Icons.Folder size={32} /> : (item?.fileName?.endsWith('pdf') ? <Icons.FileText size={32} /> : <Icons.FileSpreadsheet size={32} />)}
                                             </div>
-                                            <div className="w-full"><p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{item.name}</p></div>
+                                            <div className="w-full"><p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{item?.name || '-'}</p></div>
                                         </div>
                                     ))}
                                     {getItemsAtCurrentPath().length === 0 && <div className="col-span-full py-12 text-center text-slate-500 font-medium">Pasta Vazia ou Sem Resultados.</div>}
@@ -1862,21 +1848,21 @@
                                         <button onClick={() => setModalArquivosOpen(false)} className="text-slate-400 hover:text-rose-500"><Icons.X size={20} /></button>
                                     </div>
                                     <div className="p-4 overflow-y-auto">
-                                        {dbReports.filter(r => (r.fileName || '').toLowerCase().endsWith('.pdf')).length === 0 ? (
+                                        {dbReports.length === 0 ? (
                                             <p className="text-slate-500 dark:text-slate-400 text-center py-8">Nenhum Extrato PDF foi encontrado no Banco de Dados. Vá ao "Gestor de Extratos" para incluir ficheiros.</p>
                                         ) : (
                                             <div className="space-y-2">
-                                                {dbReports.filter(r => (r.fileName || '').toLowerCase().endsWith('.pdf')).map(rep => (
+                                                {dbReports.filter(r => (r?.fileName || '').toLowerCase().endsWith('.pdf')).map(rep => (
                                                     <div key={rep.id} onClick={() => processarArquivoDoBanco(rep)} className="p-3 bg-slate-50 dark:bg-slate-750 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg cursor-pointer flex justify-between items-center transition-colors">
                                                         <div className="flex items-center space-x-3">
                                                             <div className="bg-red-100 dark:bg-red-500/20 p-2 rounded text-red-600 dark:text-red-400"><Icons.FileText size={20}/></div>
                                                             <div>
-                                                                <p className="font-bold text-slate-900 dark:text-slate-200">{rep.parceiro}</p>
-                                                                <p className="text-xs text-slate-500 dark:text-slate-400">{rep.empresa} • {rep.mes}/{rep.ano}</p>
+                                                                <p className="font-bold text-slate-900 dark:text-slate-200">{rep?.parceiro}</p>
+                                                                <p className="text-xs text-slate-500 dark:text-slate-400">{rep?.empresa} • {rep?.mes}/{rep?.ano}</p>
                                                             </div>
                                                         </div>
                                                         <div className="text-right">
-                                                            <span className="text-xs text-slate-500 truncate block max-w-[150px]">{rep.fileName}</span>
+                                                            <span className="text-xs text-slate-500 truncate block max-w-[150px]">{rep?.fileName}</span>
                                                             <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 mt-1 block hover:text-indigo-500 dark:hover:text-indigo-300">Processar Agora</span>
                                                         </div>
                                                     </div>
@@ -1959,6 +1945,4 @@
         root.render(<GestorComissoesApp />);
     </script>
 </body>
-
 </html>
-
