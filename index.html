@@ -58,7 +58,7 @@
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2eXVqZGN3dmJqb2FxcHp2dXl2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NTgxMzcsImV4cCI6MjA4NzUzNDEzN30.UqptrsjHWG_PEu1KmWd0IxDvLnEX9AWwkKsuWJuA3T0';
 
         // Evita que a app quebre se as chaves ainda não tiverem sido configuradas corretamente
-        const isSupabaseConfigured = SUPABASE_URL.startsWith('http') && SUPABASE_KEY !== 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2eXVqZGN3dmJqb2FxcHp2dXl2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NTgxMzcsImV4cCI6MjA4NzUzNDEzN30.UqptrsjHWG_PEu1KmWd0IxDvLnEX9AWwkKsuWJuA3T0';
+        const isSupabaseConfigured = SUPABASE_URL.startsWith('http') && SUPABASE_KEY.startsWith('eyJ');
         const supabase = isSupabaseConfigured ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
 
         // ============================================================================
@@ -150,6 +150,31 @@
             </button>
         );
 
+        // --- ESCUDO ANTI-ECRÃ BRANCO (ERROR BOUNDARY) ---
+        class ErrorBoundary extends React.Component {
+            constructor(props) {
+                super(props);
+                this.state = { hasError: false, error: null };
+            }
+            static getDerivedStateFromError(error) {
+                return { hasError: true, error };
+            }
+            render() {
+                if (this.state.hasError) {
+                    return (
+                        <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white p-6">
+                            <Icons.AlertCircle size={64} className="text-rose-500 mb-4" />
+                            <h1 className="text-3xl font-bold mb-2">Ups! Algo quebrou no ecrã.</h1>
+                            <p className="text-slate-400 mb-6 text-center max-w-md">O sistema encontrou um dado inválido e protegeu-se para não corromper a base de dados. Recarregue a página para tentar novamente.</p>
+                            <button onClick={() => window.location.reload()} className="bg-blue-600 hover:bg-blue-500 px-6 py-3 rounded-lg font-bold transition-colors">Recarregar Sistema</button>
+                            <pre className="mt-8 bg-slate-800 p-4 rounded text-xs text-rose-300 max-w-2xl overflow-auto">{this.state.error?.toString()}</pre>
+                        </div>
+                    );
+                }
+                return this.props.children; 
+            }
+        }
+
         function GestorComissoesApp() {
             // Se o Supabase não estiver configurado
             if (!isSupabaseConfigured) {
@@ -170,7 +195,7 @@
                 return saved ? saved === 'dark' : true; 
             });
 
-            // AUTENTICAÇÃO BLINDADA (Evita erros de null se o localStorage estiver corrompido)
+            // AUTENTICAÇÃO BLINDADA (Evita erros de null)
             const [currentUser, setCurrentUser] = useState(() => {
                 try {
                     const saved = localStorage.getItem('protetta_auth_user');
@@ -184,10 +209,13 @@
             const [loginError, setLoginError] = useState('');
             const [showPassword, setShowPassword] = useState(false);
 
-            // VERIFICAÇÃO DE ACESSO BLINDADA
+            // VERIFICAÇÃO DE ACESSO BLINDADA (Com Failsafe para o Admin)
             const hasAccess = (module) => {
                 if (!currentUser || typeof currentUser !== 'object') return false;
-                if (currentUser.role === 'admin') return true; 
+                
+                // ESCUDO DE EMERGÊNCIA: Se o username for admin, tem sempre acesso (mesmo que a base de dados falhe a coluna role)
+                if (currentUser.username === 'admin' || currentUser.role === 'admin') return true; 
+                
                 return Array.isArray(currentUser.permissions) && currentUser.permissions.includes(module);
             };
 
@@ -280,7 +308,7 @@
                                 username: 'admin', password: 'admin', role: 'admin', permissions: SYSTEM_MODULES.map(m => m.id)
                             }]);
                         }
-                    } catch(e) { console.warn("Possível bloqueio de RLS no Supabase."); }
+                    } catch(e) { console.warn("Aviso: Falha na criação do Admin. RLS pode estar ativo."); }
                 };
                 initAdminSupabase();
             }, []);
@@ -303,14 +331,18 @@
 
                     if (users && users.length > 0 && users[0] && users[0].password === loginData.password) {
                         const user = users[0];
-                        const sessionUser = { id: user.id, username: user.username, role: user.role, permissions: user.permissions || [] };
+                        
+                        // Força o admin a ter o role de admin se for a conta master, mesmo que a tabela esteja mal configurada
+                        const finalRole = user.username === 'admin' ? 'admin' : user.role; 
+
+                        const sessionUser = { id: user.id, username: user.username, role: finalRole, permissions: user.permissions || [] };
                         setCurrentUser(sessionUser);
                         localStorage.setItem('protetta_auth_user', JSON.stringify(sessionUser));
                         setLoginError('');
                         setLoginData({ user: '', password: '' });
                         setShowPassword(false);
                         
-                        if (user.role !== 'admin' && !(user.permissions || []).includes('dashboard')) {
+                        if (finalRole !== 'admin' && !(user.permissions || []).includes('dashboard')) {
                             if (user.permissions && user.permissions.length > 0) {
                                 setCurrentView(user.permissions[0]);
                             } else {
@@ -324,7 +356,7 @@
                     }
                 } catch(err) { 
                     console.error("Erro Login:", err);
-                    setLoginError(`Conexão recusada pela Base de Dados. Verifique se o RLS está desativado na tabela "users".`); 
+                    setLoginError(`Conexão recusada pela Base de Dados. Vá ao painel Supabase e desative o "Row Level Security" na tabela "users".`); 
                 }
                 finally { setLoading(false); }
             };
@@ -983,14 +1015,20 @@
                             <div className="flex flex-col items-center justify-center h-full text-slate-500 dark:text-slate-400 animate-in fade-in">
                                 <Icons.Shield size={64} className="mb-4 opacity-20"/>
                                 <h2 className="text-2xl font-bold mb-2 text-slate-800 dark:text-slate-200">Acesso Restrito</h2>
-                                <p>O seu perfil não tem permissões suficientes para visualizar este módulo.</p>
+                                <p className="mb-6">O seu perfil não tem permissões suficientes para visualizar este módulo.</p>
+                                <button onClick={handleLogout} className="bg-rose-600 hover:bg-rose-500 text-white px-6 py-2 rounded-lg font-bold transition-colors flex items-center">
+                                    <Icons.LogOut size={18} className="mr-2" /> Sair / Terminar Sessão
+                                </button>
                             </div>
                         )}
                         {currentView === 'none' && (
                             <div className="flex flex-col items-center justify-center h-full text-slate-500 dark:text-slate-400 animate-in fade-in">
                                 <Icons.Lock size={64} className="mb-4 opacity-20"/>
                                 <h2 className="text-2xl font-bold mb-2 text-slate-800 dark:text-slate-200">Bem-vindo(a)</h2>
-                                <p>A sua conta foi validada, mas não tem acesso a nenhum módulo de momento.</p>
+                                <p className="mb-6 text-center max-w-md">A sua conta foi validada, mas não tem acesso a nenhum módulo de momento. Peça ao administrador para editar as suas permissões.</p>
+                                <button onClick={handleLogout} className="bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-white px-6 py-2 rounded-lg font-bold transition-colors flex items-center">
+                                    <Icons.LogOut size={18} className="mr-2" /> Terminar Sessão
+                                </button>
                             </div>
                         )}
 
@@ -1188,12 +1226,12 @@
                                                     <tr key={venda?.id || idx} className="border-b border-slate-200 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-750/50 transition-colors">
                                                         <td className="py-4 px-4 text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">{venda?.numero || '-'}</td>
                                                         <td className="py-4 px-4 border-r border-slate-200 dark:border-slate-700">
-                                                            <div className="font-bold text-slate-900 dark:text-slate-100">{venda?.cliente}</div>
-                                                            <div className="text-xs text-slate-500 italic mt-0.5">({venda?.loja})</div>
+                                                            <div className="font-bold text-slate-900 dark:text-slate-100">{venda?.cliente || '-'}</div>
+                                                            <div className="text-xs text-slate-500 italic mt-0.5">({venda?.loja || '-'})</div>
                                                         </td>
                                                         <td className="py-4 px-4 text-slate-600 dark:text-slate-300 border-r border-slate-200 dark:border-slate-700">{formatarDataVisivel(venda?.dataVenda)}</td>
                                                         <td className="py-4 px-4 text-center border-r border-slate-200 dark:border-slate-700">
-                                                            <span className={`${getSituacaoColor(venda?.situacao)} px-3 py-1 rounded text-xs font-bold uppercase`}>{venda?.situacao}</span>
+                                                            <span className={`${getSituacaoColor(venda?.situacao)} px-3 py-1 rounded text-xs font-bold uppercase`}>{venda?.situacao || '-'}</span>
                                                         </td>
                                                         <td className="py-4 px-4 text-slate-800 dark:text-slate-200 font-medium text-right border-r border-slate-200 dark:border-slate-700">{formatarMoeda(venda?.valor)}</td>
                                                         <td className="py-4 px-4 text-center">
@@ -1289,9 +1327,9 @@
                                                 <tr><td colSpan="5" className="py-8 text-center text-slate-500 italic">Nenhum relatório foi salvo ainda. Processe e salve um na aba "Relatórios de Comissão".</td></tr>
                                             ) : (
                                                 savedReportsList.slice().reverse().filter(Boolean).map((rep) => (
-                                                    <tr key={rep?.id} className="border-b border-slate-200 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-750/50 transition-colors">
+                                                    <tr key={rep?.id || Math.random()} className="border-b border-slate-200 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-750/50 transition-colors">
                                                         <td className="py-3 px-4 text-slate-500 dark:text-slate-400">{rep?.dataCriacao ? `${new Date(rep.dataCriacao).toLocaleDateString('pt-PT')} às ${new Date(rep.dataCriacao).toLocaleTimeString('pt-PT').slice(0,5)}` : '-'}</td>
-                                                        <td className="py-3 px-4 font-bold text-slate-800 dark:text-slate-200">{rep?.nome}</td>
+                                                        <td className="py-3 px-4 font-bold text-slate-800 dark:text-slate-200">{rep?.nome || '-'}</td>
                                                         <td className="py-3 px-4 text-slate-600 dark:text-slate-400">{rep?.periodo || '-'}</td>
                                                         <td className="py-3 px-4 text-slate-600 dark:text-slate-400 text-center">{(rep?.dados || []).length}</td>
                                                         <td className="py-3 px-4 text-center">
@@ -1377,16 +1415,16 @@
                                             ) : (
                                                 clientesFiltrados.filter(Boolean).map((cli) => {
                                                     return (
-                                                    <tr key={cli.id} className="border-b border-slate-200 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-750/50 transition-colors">
-                                                        {cols.codigo && <td className="py-3 px-4 text-slate-500 dark:text-slate-400">{cli.codigo || '-'}</td>}
-                                                        {cols.nome && <td className="py-3 px-4 font-medium text-slate-900 dark:text-slate-100">{cli.nome}</td>}
-                                                        {cols.tipo && <td className="py-3 px-4 text-slate-600 dark:text-slate-400">{cli.tipo}</td>}
-                                                        {cols.documento && <td className="py-3 px-4 text-slate-600 dark:text-slate-300">{cli.documento || '-'}</td>}
-                                                        {cols.telefone && <td className="py-3 px-4 text-slate-600 dark:text-slate-300">{cli.telefone || '-'}</td>}
-                                                        {cols.celular && <td className="py-3 px-4 text-slate-600 dark:text-slate-300">{cli.celular || '-'}</td>}
-                                                        {cols.email && <td className="py-3 px-4 text-sky-600 dark:text-sky-400">{cli.email || '-'}</td>}
-                                                        {cols.situacao && <td className="py-3 px-4 text-center">{cli.situacao ? <Icons.CheckCircle size={18} className="text-emerald-500 mx-auto"/> : <Icons.XCircle size={18} className="text-rose-500 mx-auto"/>}</td>}
-                                                        {cols.cadastrado_em && <td className="py-3 px-4 text-slate-500 dark:text-slate-400">{formatarDataVisivel(cli.cadastradoEm)}</td>}
+                                                    <tr key={cli?.id || Math.random()} className="border-b border-slate-200 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-750/50 transition-colors">
+                                                        {cols.codigo && <td className="py-3 px-4 text-slate-500 dark:text-slate-400">{cli?.codigo || '-'}</td>}
+                                                        {cols.nome && <td className="py-3 px-4 font-medium text-slate-900 dark:text-slate-100">{cli?.nome || '-'}</td>}
+                                                        {cols.tipo && <td className="py-3 px-4 text-slate-600 dark:text-slate-400">{cli?.tipo || '-'}</td>}
+                                                        {cols.documento && <td className="py-3 px-4 text-slate-600 dark:text-slate-300">{cli?.documento || '-'}</td>}
+                                                        {cols.telefone && <td className="py-3 px-4 text-slate-600 dark:text-slate-300">{cli?.telefone || '-'}</td>}
+                                                        {cols.celular && <td className="py-3 px-4 text-slate-600 dark:text-slate-300">{cli?.celular || '-'}</td>}
+                                                        {cols.email && <td className="py-3 px-4 text-sky-600 dark:text-sky-400">{cli?.email || '-'}</td>}
+                                                        {cols.situacao && <td className="py-3 px-4 text-center">{cli?.situacao ? <Icons.CheckCircle size={18} className="text-emerald-500 mx-auto"/> : <Icons.XCircle size={18} className="text-rose-500 mx-auto"/>}</td>}
+                                                        {cols.cadastrado_em && <td className="py-3 px-4 text-slate-500 dark:text-slate-400">{formatarDataVisivel(cli?.cadastradoEm)}</td>}
                                                         {cols.acoes && <td className="py-3 px-4">
                                                             <div className="flex gap-2 justify-center">
                                                                 <button onClick={()=>abrirModalAddEdit(cli)} className="text-amber-500 dark:text-amber-400 hover:text-amber-600 dark:hover:text-amber-300 bg-amber-100 dark:bg-amber-400/10 p-1.5 rounded transition-colors" title="Editar Cliente"><Icons.Edit size={16}/></button>
@@ -1481,13 +1519,13 @@
                                                 pdfData.filter(Boolean).map((linha, idx) => (
                                                     editRowIndex === idx ? (
                                                         <tr key={idx} className="border-b border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 transition-colors">
-                                                            <td className="py-2 px-2 border-r border-slate-200 dark:border-slate-700"><input type="text" value={editRowData.cod} onChange={e=>setEditRowData({...editRowData, cod: e.target.value})} className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-xs text-slate-900 dark:text-white outline-none focus:border-blue-500" /></td>
-                                                            <td className="py-2 px-2 border-r border-slate-200 dark:border-slate-700"><input type="text" value={editRowData.cliente} onChange={e=>setEditRowData({...editRowData, cliente: e.target.value})} className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-xs text-slate-900 dark:text-white outline-none focus:border-blue-500 min-w-[150px]" /></td>
-                                                            <td className="py-2 px-2 border-r border-slate-200 dark:border-slate-700"><input type="text" value={editRowData.data} onChange={e=>setEditRowData({...editRowData, data: e.target.value})} className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-xs text-slate-900 dark:text-white outline-none focus:border-blue-500 text-center" /></td>
-                                                            <td className="py-2 px-2 border-r border-slate-200 dark:border-slate-700"><input type="text" value={editRowData.situacao} onChange={e=>setEditRowData({...editRowData, situacao: e.target.value})} className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-xs text-slate-900 dark:text-white outline-none focus:border-blue-500 text-center" /></td>
-                                                            <td className="py-2 px-2 border-r border-slate-200 dark:border-slate-700"><input type="text" value={editRowData.loja} onChange={e=>setEditRowData({...editRowData, loja: e.target.value})} className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-xs text-slate-900 dark:text-white outline-none focus:border-blue-500 text-center" /></td>
-                                                            <td className="py-2 px-2 border-r border-slate-200 dark:border-slate-700"><input type="number" step="0.01" value={editRowData.valorTotal} onChange={e=>setEditRowData({...editRowData, valorTotal: e.target.value})} className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-xs text-slate-900 dark:text-white outline-none focus:border-emerald-500 text-right" /></td>
-                                                            <td className="py-2 px-2"><input type="number" step="0.01" value={editRowData.comissao} onChange={e=>setEditRowData({...editRowData, comissao: e.target.value})} className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-xs text-slate-900 dark:text-white outline-none focus:border-sky-500 text-right" /></td>
+                                                            <td className="py-2 px-2 border-r border-slate-200 dark:border-slate-700"><input type="text" value={editRowData?.cod || ''} onChange={e=>setEditRowData({...editRowData, cod: e.target.value})} className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-xs text-slate-900 dark:text-white outline-none focus:border-blue-500" /></td>
+                                                            <td className="py-2 px-2 border-r border-slate-200 dark:border-slate-700"><input type="text" value={editRowData?.cliente || ''} onChange={e=>setEditRowData({...editRowData, cliente: e.target.value})} className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-xs text-slate-900 dark:text-white outline-none focus:border-blue-500 min-w-[150px]" /></td>
+                                                            <td className="py-2 px-2 border-r border-slate-200 dark:border-slate-700"><input type="text" value={editRowData?.data || ''} onChange={e=>setEditRowData({...editRowData, data: e.target.value})} className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-xs text-slate-900 dark:text-white outline-none focus:border-blue-500 text-center" /></td>
+                                                            <td className="py-2 px-2 border-r border-slate-200 dark:border-slate-700"><input type="text" value={editRowData?.situacao || ''} onChange={e=>setEditRowData({...editRowData, situacao: e.target.value})} className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-xs text-slate-900 dark:text-white outline-none focus:border-blue-500 text-center" /></td>
+                                                            <td className="py-2 px-2 border-r border-slate-200 dark:border-slate-700"><input type="text" value={editRowData?.loja || ''} onChange={e=>setEditRowData({...editRowData, loja: e.target.value})} className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-xs text-slate-900 dark:text-white outline-none focus:border-blue-500 text-center" /></td>
+                                                            <td className="py-2 px-2 border-r border-slate-200 dark:border-slate-700"><input type="number" step="0.01" value={editRowData?.valorTotal || ''} onChange={e=>setEditRowData({...editRowData, valorTotal: e.target.value})} className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-xs text-slate-900 dark:text-white outline-none focus:border-emerald-500 text-right" /></td>
+                                                            <td className="py-2 px-2"><input type="number" step="0.01" value={editRowData?.comissao || ''} onChange={e=>setEditRowData({...editRowData, comissao: e.target.value})} className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-xs text-slate-900 dark:text-white outline-none focus:border-sky-500 text-right" /></td>
                                                             <td className="py-2 px-2 text-center no-print">
                                                                 <div className="flex gap-1 justify-center">
                                                                     <button onClick={saveRowEdit} className="text-emerald-500 hover:text-emerald-400 p-1" title="Guardar Edição"><Icons.CheckCircle size={18}/></button>
@@ -1551,7 +1589,7 @@
                                             <Icons.Layers size={24} className="text-slate-400 mb-2" /><p className="text-sm text-slate-500 dark:text-slate-300">Clique para anexar os extratos (PDF, Excel)</p>
                                         </div>
                                         <input type="file" ref={fileInputRef} onChange={(e)=>{ const newFiles = Array.from(e.target.files); if(newFiles.length>0){setFormData(prev=>({...prev, arquivos: [...prev.arquivos, ...newFiles]})); setFormError('');} if(fileInputRef.current) fileInputRef.current.value=""; }} className="hidden" multiple accept=".pdf,.csv,.xlsx,.xls" />
-                                        {formData.arquivos.length > 0 && <div className="mt-2 space-y-2">{formData.arquivos.map((f, i) => <div key={i} className="bg-slate-50 dark:bg-slate-900 p-2 rounded border border-slate-200 dark:border-slate-700 flex justify-between items-center"><span className="text-xs text-slate-700 dark:text-slate-300 truncate">{f.name}</span><button type="button" onClick={() => setFormData(prev => ({...prev, arquivos: prev.arquivos.filter((_, idx) => idx !== i)}))} className="text-rose-500 dark:text-rose-400"><Icons.X size={14} /></button></div>)}</div>}
+                                        {formData.arquivos.length > 0 && <div className="mt-2 space-y-2">{formData.arquivos.map((f, i) => <div key={i} className="bg-slate-50 dark:bg-slate-900 p-2 rounded border border-slate-200 dark:border-slate-700 flex justify-between items-center"><span className="text-xs text-slate-700 dark:text-slate-300 truncate">{f?.name || ''}</span><button type="button" onClick={() => setFormData(prev => ({...prev, arquivos: prev.arquivos.filter((_, idx) => idx !== i)}))} className="text-rose-500 dark:text-rose-400"><Icons.X size={14} /></button></div>)}</div>}
                                     </div>
                                     {formError && <p className="text-rose-500 dark:text-rose-400 text-sm font-medium">{formError}</p>}
                                     <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg flex items-center justify-center space-x-2 transition-colors"><Icons.Save size={20} /><span>Guardar Extrato no Banco</span></button>
@@ -1581,9 +1619,9 @@
                                     </div>
                                 )}
                                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                                    {getItemsAtCurrentPath().map((item, idx) => (
+                                    {getItemsAtCurrentPath().filter(Boolean).map((item, idx) => (
                                         <div key={idx} onClick={() => handleNavigate(item)} className={`p-4 rounded-xl border cursor-pointer flex flex-col items-center text-center space-y-3 transition-colors ${item.type === 'folder' ? 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700' : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 hover:border-emerald-500/50 hover:bg-white dark:hover:bg-slate-800'}`}>
-                                            <div className={`p-3 rounded-full ${item.type === 'folder' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' : 'bg-slate-100 dark:bg-slate-700 ' + getFileColorClass(item.fileName)}`}>
+                                            <div className={`p-3 rounded-full ${item.type === 'folder' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' : 'bg-slate-100 dark:bg-slate-700 ' + getFileColorClass(item?.fileName)}`}>
                                                 {item.type === 'folder' ? <Icons.Folder size={32} /> : (item?.fileName?.endsWith('pdf') ? <Icons.FileText size={32} /> : <Icons.FileSpreadsheet size={32} />)}
                                             </div>
                                             <div className="w-full"><p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{item?.name || '-'}</p></div>
@@ -1612,13 +1650,8 @@
                                                     zip.file("historico.json", JSON.stringify(savedReportsList));
                                                     zip.file("vendas.json", JSON.stringify(vendasList));
                                                     
-                                                    // Buscar todos os usuários do Supabase
-                                                    const { data: allUsers } = await supabase.from('users').select('*');
-                                                    zip.file("usuarios.json", JSON.stringify(allUsers || []));
-                                                    
-                                                    // Para os arquivos, você precisaria baixar cada blob do storage
-                                                    // É mais complexo; talvez remova essa parte do backup ou adapte.
-                                                    // Uma solução simples: não incluir arquivos no backup por enquanto.
+                                                    const allUsers = await db.users.toArray();
+                                                    zip.file("usuarios.json", JSON.stringify(allUsers));
                                                     
                                                     const content = await zip.generateAsync({type: "blob"});
                                                     const url = URL.createObjectURL(content);
@@ -1631,12 +1664,12 @@
                                     </div>
                                     <div className="bg-rose-50 dark:bg-red-900/10 p-6 rounded-xl border border-rose-200 dark:border-red-900/30 mt-4 transition-colors">
                                         <h3 className="font-bold text-rose-600 dark:text-rose-400 mb-2 flex items-center"><Icons.Trash2 size={18} className="mr-2"/> Limpeza Total</h3>
-                                        <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">Isto irá apagar todos os Extratos Arquivados, Histórico e Vendas.</p>
+                                        <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">Isto irá apagar todos os dados guardados localmente.</p>
                                         <button onClick={() => {
-                                            showConfirm("PERIGO: Tem a certeza absoluta que deseja apagar TODOS os dados? Esta ação não tem volta.", async () => {
-                                                await db.reports.clear(); await db.files.clear(); await db.savedReports.clear(); await db.vendas.clear(); setDbReports([]); setSavedReportsList([]); setVendasList([]); showAlert("Banco de extratos e vendas limpo com sucesso.");
+                                            showConfirm("PERIGO: Tem a certeza absoluta que deseja apagar TODOS os dados locais? Esta ação não tem volta.", async () => {
+                                                await db.reports.clear(); await db.files.clear(); await db.savedReports.clear(); await db.vendas.clear(); setDbReports([]); setSavedReportsList([]); setVendasList([]); showAlert("Banco de dados limpo com sucesso.");
                                             });
-                                        }} className="w-full border border-rose-400 dark:border-rose-500/50 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-500/20 font-bold py-2 rounded-lg transition-colors text-sm">Apagar Todo o Banco</button>
+                                        }} className="w-full border border-rose-400 dark:border-rose-500/50 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-500/20 font-bold py-2 rounded-lg transition-colors text-sm">Apagar Todo o Banco Local</button>
                                     </div>
                                 </div>
                             </div>
@@ -1943,8 +1976,11 @@
         }
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<GestorComissoesApp />);
+        root.render(
+            <ErrorBoundary>
+                <GestorComissoesApp />
+            </ErrorBoundary>
+        );
     </script>
 </body>
 </html>
-
