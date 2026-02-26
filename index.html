@@ -151,27 +151,47 @@
 
         // --- ERROR BOUNDARY ---
         class ErrorBoundary extends React.Component {
-            constructor(props) {
-                super(props);
-                this.state = { hasError: false, error: null };
-            }
-            static getDerivedStateFromError(error) {
-                return { hasError: true, error };
-            }
-            render() {
-                if (this.state.hasError) {
-                    return (
-                        <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white p-6">
-                            <Icons.AlertCircle size={64} className="text-rose-500 mb-4" />
-                            <h1 className="text-3xl font-bold mb-2">Ops! Algo quebrou.</h1>
-                            <p className="text-slate-400 mb-6 text-center max-w-md">Recarregue a página.</p>
-                            <button onClick={() => window.location.reload()} className="bg-blue-600 hover:bg-blue-500 px-6 py-3 rounded-lg font-bold transition-colors">Recarregar Sistema</button>
-                        </div>
-                    );
-                }
-                return this.props.children; 
-            }
+    constructor(props) {
+        super(props);
+        this.state = { hasError: false, error: null, errorInfo: null };
+    }
+    static getDerivedStateFromError(error) {
+        return { hasError: true, error };
+    }
+    componentDidCatch(error, errorInfo) {
+        console.error('Erro capturado:', error, errorInfo);
+        this.setState({ errorInfo });
+    }
+    render() {
+        if (this.state.hasError) {
+            return (
+                <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white p-6">
+                    <Icons.AlertCircle size={64} className="text-rose-500 mb-4" />
+                    <h1 className="text-3xl font-bold mb-2">Ops! Algo quebrou.</h1>
+                    <p className="text-slate-400 mb-6 text-center max-w-md">
+                        {this.state.error?.toString()}
+                    </p>
+                    <button 
+                        onClick={() => window.location.reload()} 
+                        className="bg-blue-600 hover:bg-blue-500 px-6 py-3 rounded-lg font-bold transition-colors mb-4"
+                    >
+                        Recarregar Sistema
+                    </button>
+                    <button 
+                        onClick={() => {
+                            localStorage.clear();
+                            window.location.reload();
+                        }} 
+                        className="bg-amber-600 hover:bg-amber-500 px-6 py-3 rounded-lg font-bold transition-colors"
+                    >
+                        Limpar Cache e Recarregar
+                    </button>
+                </div>
+            );
         }
+        return this.props.children; 
+    }
+}
 
         function GestorComissoesApp() {
             // Se o Supabase não estiver configurado
@@ -305,34 +325,40 @@
 
             // CARREGAMENTO DE DADOS DO SUPABASE
             const loadFromDB = async () => {
-                if(!supabase) return;
-                try {
-                    console.log('Carregando dados...');
-                    
-                    // Reports
-                    const { data: reportsData } = await supabase.from('reports').select('*');
-                    if (reportsData) setDbReports(reportsData);
-                    
-                    // Clientes
-                    const { data: clientesData } = await supabase.from('clientes').select('*');
-                    if (clientesData) setClientes(clientesData);
-                    
-                    // Vendas
-                    const { data: vendasData } = await supabase.from('vendas').select('*');
-                    if (vendasData) setVendasList(vendasData);
-                    
-                    // Saved Reports
-                    const { data: savedData } = await supabase.from('savedReports').select('*');
-                    if (savedData) setSavedReportsList(savedData);
-                    
-                    // Users
-                    const { data: usersData } = await supabase.from('users').select('*');
-                    if (usersData) setUsersList(usersData);
+    if(!supabase) return;
+    try {
+        console.log('Carregando dados...');
+        
+        // Reports - com tratamento de erro
+        const { data: reportsData, error: reportsError } = await supabase.from('reports').select('*');
+        if (reportsError) console.error('Erro reports:', reportsError);
+        if (reportsData) setDbReports(reportsData);
+        
+        // Clientes
+        const { data: clientesData, error: clientesError } = await supabase.from('clientes').select('*');
+        if (clientesError) console.error('Erro clientes:', clientesError);
+        if (clientesData) setClientes(clientesData);
+        
+        // Vendas
+        const { data: vendasData, error: vendasError } = await supabase.from('vendas').select('*');
+        if (vendasError) console.error('Erro vendas:', vendasError);
+        if (vendasData) setVendasList(vendasData);
+        
+        // Saved Reports
+        const { data: savedData, error: savedError } = await supabase.from('savedReports').select('*');
+        if (savedError) console.error('Erro savedReports:', savedError);
+        if (savedData) setSavedReportsList(savedData);
+        
+        // Users
+        const { data: usersData, error: usersError } = await supabase.from('users').select('*');
+        if (usersError) console.error('Erro users:', usersError);
+        if (usersData) setUsersList(usersData);
 
-                } catch (err) { 
-                    console.error("Erro ao carregar:", err);
-                }
-            };
+    } catch (err) { 
+        console.error("Erro ao carregar:", err);
+        showAlert("Erro ao carregar dados: " + err.message);
+    }
+};
 
             // Setup Inicial do Admin
             useEffect(() => {
@@ -512,25 +538,25 @@
                         });
                     }
                 });
-
+            
                 if (appliedVendasFilters) {
                     const f = appliedVendasFilters;
                     if (f.loja !== 'Todos') todasAsVendas = todasAsVendas.filter(v => v?.loja === f.loja);
                     if (f.situacao !== 'Todos') todasAsVendas = todasAsVendas.filter(v => v?.situacao === f.situacao);
                     if (f.codigo) todasAsVendas = todasAsVendas.filter(v => (v?.numero || '').toLowerCase().includes(f.codigo.toLowerCase()));
-                    if (f.cliente) toutesAsVendas = toutesAsVendas.filter(v => (v?.cliente || '').toLowerCase().includes(f.cliente.toLowerCase()));
-                    if (f.contrato) toutesAsVendas = toutesAsVendas.filter(v => (v?.contrato || '').toLowerCase().includes(f.contrato.toLowerCase()));
-                    if (f.codigoOperadora) toutesAsVendas = toutesAsVendas.filter(v => (v?.codigoOperadora || '').toLowerCase().includes(f.codigoOperadora.toLowerCase()));
-                    if (f.notaFiscal) toutesAsVendas = toutesAsVendas.filter(v => (v?.notaFiscal || '').toLowerCase().includes(f.notaFiscal.toLowerCase()));
-                    if (f.vidas) toutesAsVendas = toutesAsVendas.filter(v => String(v?.vidas || '') === String(f.vidas));
-                    if (f.vitalicio !== 'Selecione') toutesAsVendas = toutesAsVendas.filter(v => v?.vitalicio === f.vitalicio);
-                    if (f.corretor !== 'Todos') toutesAsVendas = toutesAsVendas.filter(v => v?.corretor === f.corretor);
-                    if (f.dataInicio) toutesAsVendas = toutesAsVendas.filter(v => v?.dataVenda >= f.dataInicio);
-                    if (f.dataFim) toutesAsVendas = toutesAsVendas.filter(v => v?.dataVenda <= f.dataFim);
+                    if (f.cliente) todasAsVendas = todasAsVendas.filter(v => (v?.cliente || '').toLowerCase().includes(f.cliente.toLowerCase()));
+                    if (f.contrato) todasAsVendas = todasAsVendas.filter(v => (v?.contrato || '').toLowerCase().includes(f.contrato.toLowerCase()));
+                    if (f.codigoOperadora) todasAsVendas = todasAsVendas.filter(v => (v?.codigoOperadora || '').toLowerCase().includes(f.codigoOperadora.toLowerCase()));
+                    if (f.notaFiscal) todasAsVendas = todasAsVendas.filter(v => (v?.notaFiscal || '').toLowerCase().includes(f.notaFiscal.toLowerCase()));
+                    if (f.vidas) todasAsVendas = todasAsVendas.filter(v => String(v?.vidas || '') === String(f.vidas));
+                    if (f.vitalicio !== 'Selecione') todasAsVendas = todasAsVendas.filter(v => v?.vitalicio === f.vitalicio);
+                    if (f.corretor !== 'Todos') todasAsVendas = todasAsVendas.filter(v => v?.corretor === f.corretor);
+                    if (f.dataInicio) todasAsVendas = todasAsVendas.filter(v => v?.dataVenda >= f.dataInicio);
+                    if (f.dataFim) todasAsVendas = todasAsVendas.filter(v => v?.dataVenda <= f.dataFim);
                 }
                 
-                toutesAsVendas.sort((a, b) => new Date(b?.dataVenda || 0) - new Date(a?.dataVenda || 0));
-                return toutesAsVendas;
+                todasAsVendas.sort((a, b) => new Date(b?.dataVenda || 0) - new Date(a?.dataVenda || 0));
+                return todasAsVendas;
             };
 
             const displayedVendas = getFilteredVendas();
@@ -2499,3 +2525,4 @@
     </script>
 </body>
 </html>
+
