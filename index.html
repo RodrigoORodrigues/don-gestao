@@ -305,38 +305,37 @@
 
             // CARREGAMENTO DE DADOS DO SUPABASE
             const loadFromDB = async () => {
-                    if(!supabase) return;
-                    try {
-                        console.log('Carregando dados do Supabase...');
-                        
-                        // Tentar buscar reports
-                        const { data: reportsData, error: reportsError } = await supabase
-                            .from('reports')
-                            .select('*');
-                        
-                        if (reportsError) {
-                            console.error('Erro ao buscar reports:', reportsError);
-                        } else {
-                            console.log('Reports carregados:', reportsData);
-                            setDbReports(reportsData || []);
-                        }
-                        
-                        // Buscar outras tabelas
-                        const { data: clientesData } = await supabase.from('clientes').select('*').catch(() => ({ data: [] }));
-                        const { data: vendasData } = await supabase.from('vendas').select('*').catch(() => ({ data: [] }));
-                        const { data: savedData } = await supabase.from('savedReports').select('*').catch(() => ({ data: [] }));
-                        const { data: usersData } = await supabase.from('users').select('*').catch(() => ({ data: [] }));
-                        
-                        setClientes(clientesData || []);
-                        setVendasList(vendasData || []);
-                        setSavedReportsList(savedData || []);
-                        setUsersList(usersData || []);
-                
-                    } catch (err) { 
-                        console.error("Erro ao carregar Supabase:", err);
-                    }
-                };
+    if(!supabase) return;
+    try {
+        console.log('Carregando reports...');
+        
+        // Query simples sem especificar colunas
+        const { data, error } = await supabase
+            .from('reports')
+            .select('*');
+        
+        if (error) {
+            console.error('Erro ao buscar reports:', error);
+        } else {
+            console.log('Reports carregados:', data);
+            setDbReports(data || []);
+        }
+        
+        // Outras tabelas
+        const { data: clientesData } = await supabase.from('clientes').select('*');
+        const { data: vendasData } = await supabase.from('vendas').select('*');
+        const { data: savedData } = await supabase.from('savedReports').select('*');
+        const { data: usersData } = await supabase.from('users').select('*');
+        
+        if (clientesData) setClientes(clientesData);
+        if (vendasData) setVendasList(vendasData);
+        if (savedData) setSavedReportsList(savedData);
+        if (usersData) setUsersList(usersData);
 
+    } catch (err) { 
+        console.error("Erro ao carregar:", err);
+    }
+};
             // Setup Inicial do Admin
             useEffect(() => {
                 const initAdmin = async () => {
@@ -739,105 +738,59 @@
             };
 
             const handleSubmitExtrato = async (e) => {
-                    e.preventDefault();
-                    
-                    // Validações
-                    if (!formData.parceiro.trim()) return setFormError('ERRO: Parceiro obrigatório.');
-                    if (formData.arquivos.length === 0) return setFormError('ERRO: Anexos obrigatórios.');
-                    
-                    setLoading(true); 
-                    setLoadingMsg("Fazendo upload...");
-                    
-                    try {
-                        console.log('Iniciando upload...');
-                        
-                        for (const file of formData.arquivos) {
-                            const filePath = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
-                            
-                            console.log('Enviando arquivo:', file.name, 'para path:', filePath);
-                            
-                            // Upload para storage
-                            const { data: uploadData, error: uploadErr } = await supabase.storage
-                                .from('documentos')
-                                .upload(filePath, file, {
-                                    cacheControl: '3600',
-                                    upsert: false
-                                });
-                
-                            if(uploadErr) {
-                                console.error('Erro upload:', uploadErr);
-                                throw new Error(`Erro no upload: ${uploadErr.message}`);
-                            }
-                            
-                            console.log('Upload OK, inserindo na tabela reports...');
-                            
-                            // Inserir na tabela reports
-                            const novoRegistro = { 
-                                ano: formData.ano, 
-                                mes: formData.mes, 
-                                categoria: formData.categoria, 
-                                empresa: formData.empresa, 
-                                parceiro: formData.parceiro, 
-                                date: new Date().toISOString(), 
-                                fileName: file.name, 
-                                filePath: filePath 
-                            };
-                            
-                            console.log('Dados a inserir:', novoRegistro);
-                            
-                            const { data: insertData, error: insertErr } = await supabase
-                                .from('reports')
-                                .insert([novoRegistro])
-                                .select();
-                
-                            if(insertErr) {
-                                console.error('Erro insert:', insertErr);
-                                throw new Error(`Erro ao salvar no banco: ${insertErr.message}`);
-                            }
-                            
-                            console.log('Inserido com sucesso:', insertData);
-                        }
-                        
-                        // Recarregar dados
-                        await loadFromDB();
-                        
-                        // Mostrar mensagem de sucesso
-                        setSuccessMsg(`${formData.arquivos.length} extratos guardados com sucesso!`);
-                        
-                        // Limpar formulário
-                        setFormData(prev => ({ ...prev, parceiro: '', arquivos: [] }));
-                        
-                        // Limpar mensagem após 4 segundos
-                        setTimeout(() => setSuccessMsg(''), 4000);
-                        
-                    } catch (error) { 
-                        console.error('Erro completo:', error);
-                        showAlert("Erro ao enviar: " + error.message); 
-                    } finally { 
-                        setLoading(false); 
-                    }
-                };
+    e.preventDefault();
+    
+    if (!formData.parceiro.trim()) return setFormError('ERRO: Parceiro obrigatório.');
+    if (formData.arquivos.length === 0) return setFormError('ERRO: Anexos obrigatórios.');
+    
+    setLoading(true); 
+    setLoadingMsg("Fazendo upload...");
+    
+    try {
+        for (const file of formData.arquivos) {
+            const filePath = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+            
+            // Upload para storage
+            const { error: uploadErr } = await supabase.storage
+                .from('documentos')
+                .upload(filePath, file);
 
-            const handleNavigate = async (item) => {
-                if (item.type === 'folder') { 
-                    setCurrentPath([...currentPath, item.name]); 
-                    setSearchTerm(''); 
-                } else if (item.type === 'file') {
-                    setLoading(true); 
-                    setLoadingMsg("Descarregando...");
-                    try { 
-                        const { data, error } = await supabase.storage.from('documentos').download(item.filePath);
-                        if(error) throw error;
-                        setSelectedFile({ ...item, fileObj: data }); 
-                    } catch(e) { 
-                        console.error('Erro download:', e);
-                        showAlert("Erro ao descarregar: " + e.message); 
-                    } finally { 
-                        setLoading(false); 
-                    }
-                }
-            };
+            if(uploadErr) throw uploadErr;
+            
+            // Inserir na tabela reports - usando os nomes em minúsculo
+            const { error: insertErr } = await supabase
+                .from('reports')
+                .insert({
+                    ano: formData.ano,
+                    mes: formData.mes,
+                    categoria: formData.categoria,
+                    empresa: formData.empresa,
+                    parceiro: formData.parceiro,
+                    date: new Date().toISOString(),
+                    filename: file.name,
+                    filepath: filePath
+                });
 
+            if(insertErr) throw insertErr;
+        }
+        
+        // Aguardar um momento para o cache atualizar
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Recarregar dados
+        await loadFromDB();
+        
+        setSuccessMsg(`${formData.arquivos.length} extratos guardados!`);
+        setFormData(prev => ({ ...prev, parceiro: '', arquivos: [] }));
+        setTimeout(() => setSuccessMsg(''), 4000);
+        
+    } catch (error) { 
+        console.error('Erro completo:', error);
+        showAlert("Erro ao enviar: " + error.message); 
+    } finally { 
+        setLoading(false); 
+    }
+};
             // --- FUNÇÕES: CLIENTES ---
             const clientesFiltrados = clientes.filter(cli => cli && cli.nome && cli.nome.toLowerCase().includes(filtroNomeCliente.toLowerCase()));
 
@@ -1540,4 +1493,5 @@
     </script>
 </body>
 </html>
+
 
