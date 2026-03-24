@@ -553,7 +553,9 @@
                 else if (item.type === 'file') {
                     setLoading(true); setLoadingMsg("Descarregando ficheiro...");
                     try { 
-                        const { data, error } = await supabase.storage.from('arquivos_extratos').download(item.filePath);
+                        const pathTarget = item.filePath || item.fileName;
+                        if (!pathTarget) throw new Error("Caminho do ficheiro ausente. O registo pode ser de uma versão mais antiga.");
+                        const { data, error } = await supabase.storage.from('arquivos_extratos').download(pathTarget);
                         if(error) throw error; setSelectedFile({ ...item, fileObj: data }); 
                     } catch(e) { showAlert("Erro ao descarregar da Cloud: " + e.message); } finally { setLoading(false); }
                 }
@@ -612,7 +614,9 @@
             const processarArquivoDoBanco = async (report) => {
                 setLoading(true); setLoadingMsg("A descarregar PDF da nuvem..."); setModalArquivosOpen(false); 
                 try {
-                    const { data: fileBlob, error } = await supabase.storage.from('arquivos_extratos').download(report.filePath);
+                    const pathTarget = report.filePath || report.fileName;
+                    if (!pathTarget) throw new Error("Caminho do ficheiro ausente.");
+                    const { data: fileBlob, error } = await supabase.storage.from('arquivos_extratos').download(pathTarget);
                     if (error || !fileBlob) throw new Error("Ficheiro PDF não encontrado no Storage.");
                     setLoadingMsg("A processar dados do PDF..."); const arrayBuffer = await fileBlob.arrayBuffer(); const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
                     let textoCompleto = "";
